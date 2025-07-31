@@ -1,0 +1,57 @@
+services:
+  emailalias-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: emailalias-server
+    ports:
+      - "8080:8080"
+    environment:
+      - JAVA_OPTS=-Xmx512m
+      - SERVER_PORT=8080
+      - DATABASE_PATH=/data/emailalias.db
+    volumes:
+      - server_data:/data
+      - ./logs:/app/logs
+    networks:
+      - emailalias-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # (SQ lite DB with vol persistence) & backups
+  database-backup:
+    image: alpine:latest
+    container_name: emailalias-db-backup
+    volumes:
+      - server_data:/data:ro
+      - ./backups:/backups
+    command: >
+      sh -c "
+        while true; do
+          cp /data/emailalias.db /backups/emailalias-backup-$$(date +%Y%m%d_%H%M%S).db 2>/dev/null || true
+          find /backups -name '*.db' -mtime +7 -delete
+          sleep 86400
+        done
+      "
+    depends_on:
+      - emailalias-server
+    networks:
+      - emailalias-network
+    restart: unless-stopped
+
+volumes:
+  server_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data
+
+networks:
+  emailalias-network:
+    driver: bridge
